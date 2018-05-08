@@ -1,56 +1,38 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <QMainWindow>
-#include <QString>
-#include <QDebug>
-#include <QFile>
-#include <QFileDialog>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QDir>
-#include <QMessageBox>
+#include <QDialog>
 
-#include <configureproperty.h>
+#include "configureproperty.h"
+#include "ui_mainwindow.h"
 
-namespace Ui {
-class MainWindow;
-}
-
-class MainWindow : public QMainWindow
+class MainWindow : public QDialog
 {
     Q_OBJECT
 
 public:
     explicit MainWindow(QWidget *parent = 0);
-    ~MainWindow();
     QString appPath;
     QString currentWorkingPath;
     QString cfgFilePath;
-    ConfigureProperty *cfgp;
-    QByteArray readJsonFile(const QString &filename);
-    void writeJsonFile(const QString &filename, QString outString);
+    ConfigureProperty cfgp;
+    static QByteArray readJsonFile(const QString &filename);
+    static void writeJsonFile(const QString &filename, const QByteArray &contents);
     void readConfigFile();
-    void writeConfigFile();
+    void writeConfigFile() const;
     void setUI();
     void dirAssert();
 
 private slots:
-    void on_saveCFGButton_clicked();
-
-    void on_cancelButton_clicked();
-
+    void onAutoSetButton_clicked();
+    void onSaveCFGButton_clicked();
+    void onCancelButton_clicked();
     void on_mainPathBrowseButton_clicked();
-
     void on_cfgAppBrowseButton_clicked();
-
     void on_resourceBrowseButton_clicked();
 
-    void on_autoSetButton_clicked();
-
 private:
-    Ui::MainWindow *ui;
+    Ui::MainWindow ui;
 };
 
 #endif // MAINWINDOW_H

@@ -1,158 +1,116 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <QDebug>
+#include <QDir>
+#include <QFile>
+#include <QFileDialog>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QMessageBox>
+#include <QString>
 
 MainWindow::MainWindow(QWidget *parent) :
-    QMainWindow(parent),
-    ui(new Ui::MainWindow)
+    QDialog(parent)
 {
-    ui->setupUi(this);
-    removeToolBar(ui->mainToolBar);
-    appPath = "";
-    currentWorkingPath = "";
-    cfgFilePath = "";
-    cfgp = new ConfigureProperty();
+    ui.setupUi(this);
+    connect(ui.buttonBox->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked, this, &MainWindow::onAutoSetButton_clicked);
+    connect(ui.buttonBox->button(QDialogButtonBox::Save), &QPushButton::clicked, this, &MainWindow::onSaveCFGButton_clicked);
+    connect(ui.buttonBox->button(QDialogButtonBox::Cancel), &QPushButton::clicked, this, &MainWindow::onCancelButton_clicked);
+
     // Product type is the system type, for example,
     //    macos, winrt, etc.
     //    This term is useful because the paths are
     //    different on each system.
-    cfgp->productType = QSysInfo::productType();
-    cfgp->productVersion = QSysInfo::productVersion();
-    cfgp->CFGAppPath = QCoreApplication::applicationDirPath();
+    cfgp.productType = QSysInfo::productType();
+    cfgp.productVersion = QSysInfo::productVersion();
+    cfgp.CFGAppPath = QCoreApplication::applicationDirPath();
 
     // In MacOS, the application should end with .app, but the above
     //    function gives the path to the excutable file, which is
     //    the right path, but I prefer the one with .app.
     //    In this way, users are unlikely to chose a wrong path if
     //    not familiar with Mac application system.
-    QString tempEnd = "/Contents/MacOS";
-    if (cfgp->CFGAppPath.endsWith(tempEnd))
-    {
-        int tempIndex = cfgp->CFGAppPath.indexOf(tempEnd);
-        if (tempIndex > 0)
-        {
-            cfgp->CFGAppPath.replace(tempIndex, tempEnd.length(), "");
-        }
-    }
-    ui->cfgPathEdit->setText(cfgp->CFGAppPath);
-    QStringList mapTypeList;
-    mapTypeList << "hybrid" << "satellite" << "terrain" << "roadmap";
-    ui->mapTypeComboBox->addItems(mapTypeList);
-}
-
-MainWindow::~MainWindow()
-{
-    delete ui;
+    cfgp.CFGAppPath.remove(QRegularExpression("/Contents/MacOS$"));
+    ui.cfgPathEdit->setText(cfgp.CFGAppPath);
 }
 
 QByteArray MainWindow::readJsonFile(const QString &filename)
 {
     QFile f(filename);
-    if (!f.open(QFile::ReadOnly | QFile::Text)) {
-        f.close();
-        return QString().toUtf8();
-    } else {
-        QTextStream in(&f);
-        QByteArray retValue = in.readAll().toUtf8();
-        f.close();
-        return retValue;
-    }
+    if (!f.open(QFile::ReadOnly | QFile::Text))
+        return {};
+    return f.readAll();
 }
 
-void MainWindow::writeJsonFile(const QString &filename, QString outString)
+void MainWindow::writeJsonFile(const QString &filename, const QByteArray &contents)
 {
     QFile f(filename);
-    if (!f.open(QFile::WriteOnly | QFile::Text)) {
-        f.close();
-    } else {
-        QTextStream out(&f);
-        out << outString;
-        f.close();
-    }
+    if (f.open(QFile::WriteOnly | QFile::Text))
+        f.write(contents);
 }
 
 void MainWindow::readConfigFile()
 {
-    QByteArray var = readJsonFile(cfgp->cfgFilePath);
-    QJsonDocument doc;
-    doc = QJsonDocument::fromJson(var);
-    QJsonObject cfgJsonObj = doc.object();
-    cfgp->ResourcePath = cfgJsonObj["Resource"].toString();
-    cfgp->mapImagePath = cfgJsonObj["Map Resource"].toString();
-    cfgp->mapIndexPath = cfgJsonObj["Map Index"].toString();
-    cfgp->xbeeAddrPath = cfgJsonObj["XBEE Address"].toString();
-    cfgp->logFilePath = cfgJsonObj["Log"].toString();
-
-    cfgp->zoomLevel = cfgJsonObj["Zoom Level"].toString();
-    cfgp->mapKey = cfgJsonObj["Map Key"].toString();
+    QByteArray var = readJsonFile(cfgp.cfgFilePath);
+    QJsonDocument doc = QJsonDocument::fromJson(var);
+    cfgp.setFromJsonObject(doc.object());
 }
 
-void MainWindow::writeConfigFile()
+void MainWindow::writeConfigFile() const
 {
-    // Compose configure file
-    QJsonObject cfgJsonObj;
-    cfgJsonObj.insert("GCS", cfgp->GCSAppPath);
-    cfgJsonObj.insert("CFG", cfgp->CFGAppPath);
-    cfgJsonObj.insert("Map Manager", cfgp->MMAppPath);
-
-    cfgJsonObj.insert("Resource", cfgp->ResourcePath);
-    cfgJsonObj.insert("Map Resource", cfgp->mapImagePath);
-    cfgJsonObj.insert("Map Index", cfgp->mapIndexPath);
-    cfgJsonObj.insert("XBEE Address", cfgp->xbeeAddrPath);
-    cfgJsonObj.insert("Log", cfgp->logFilePath);
-
-    cfgJsonObj.insert("Map Type", cfgp->mapType);
-    cfgJsonObj.insert("Zoom Level", cfgp->zoomLevel);
-    cfgJsonObj.insert("Map Key", cfgp->mapKey);
-    QJsonDocument cfgJsonDoc;
-    cfgJsonDoc.setObject(cfgJsonObj);
-
-    // Write to configure file
-    writeJsonFile(cfgp->cfgFilePath, cfgJsonDoc.toJson());
-    //
+    // Preserve the configuration file contents; only
+    // update our configuration.
+    QByteArray var = readJsonFile(cfgp.cfgFilePath);
+    QJsonDocument doc = QJsonDocument::fromJson(var);
+    QJsonObject obj = doc.object();
+    cfgp.setToJsonObject(obj);
+    doc.setObject(obj);
+    writeJsonFile(cfgp.cfgFilePath, doc.toJson());
 }
 
 void MainWindow::dirAssert()
 {
-    if(QDir(cfgp->ResourcePath).exists())
+    if(QDir(cfgp.ResourcePath).exists())
     {
         ;
     }
     else
     {
-        QDir().mkdir(cfgp->ResourcePath);
+        QDir().mkdir(cfgp.ResourcePath);
     }
 
-    if(QDir(cfgp->mapImagePath).exists())
+    if(QDir(cfgp.mapImagePath).exists())
     {
         ;
     }
     else
     {
-        QDir().mkdir(cfgp->mapImagePath);
+        QDir().mkdir(cfgp.mapImagePath);
     }
 
-    if(QDir(cfgp->xbeeAddrPath).exists())
+    if(QDir(cfgp.xbeeAddrPath).exists())
     {
         ;
     }
     else
     {
-        QDir().mkdir(cfgp->xbeeAddrPath);
+        QDir().mkdir(cfgp.xbeeAddrPath);
     }
 
-    if(QDir(cfgp->logFilePath).exists())
+    if(QDir(cfgp.logFilePath).exists())
     {
         ;
     }
     else
     {
-        QDir().mkdir(cfgp->logFilePath);
+        QDir().mkdir(cfgp.logFilePath);
     }
 }
 
-void MainWindow::on_saveCFGButton_clicked()
+void MainWindow::onSaveCFGButton_clicked()
 {
-    cfgp->mapType = ui->mapTypeComboBox->currentText();
+    cfgp.mapType = ui.mapTypeComboBox->currentText();
     dirAssert();
     writeConfigFile();
     QMessageBox::StandardButton reply;
@@ -163,24 +121,25 @@ void MainWindow::on_saveCFGButton_clicked()
 
 void MainWindow::setUI()
 {
-    ui->resourcePathEdit->setText(cfgp->ResourcePath);
-    ui->mapResourceEdit->setText(cfgp->mapImagePath);
-    ui->mapIndexPathEdit->setText(cfgp->mapIndexPath);
-    ui->xbeeAddrEdit->setText(cfgp->xbeeAddrPath);
-    ui->logPathEdit->setText(cfgp->logFilePath);
+    ui.resourcePathEdit->setText(cfgp.ResourcePath);
+    ui.mapResourceEdit->setText(cfgp.mapImagePath);
+    ui.mapIndexPathEdit->setText(cfgp.mapIndexPath);
+    ui.xbeeAddrEdit->setText(cfgp.xbeeAddrPath);
+    ui.logPathEdit->setText(cfgp.logFilePath);
 
-    ui->zoomLevelEdit->setText(cfgp->zoomLevel);
-    ui->mapKeyEdit->setText(cfgp->mapKey);
+    ui.zoomLevelEdit->setText(cfgp.zoomLevel);
+    ui.mapKeyEdit->setText(cfgp.mapKey);
 }
 
-void MainWindow::on_cancelButton_clicked()
+void MainWindow::onCancelButton_clicked()
 {
+    return;
     QApplication::quit();
 }
 
 void MainWindow::on_mainPathBrowseButton_clicked()
 {
-    if (cfgp->productType == "osx")
+    if (cfgp.productType == "osx")
     {
         QString fileName = QFileDialog::getOpenFileName(this, "Choose App File", "", "App Package (*.app);;All files (*.*)");
         if (fileName.length() > 0)
@@ -189,10 +148,10 @@ void MainWindow::on_mainPathBrowseButton_clicked()
             {
                 //qDebug() << fileName;
                 appPath = fileName;
-                cfgp->GCSAppPath = fileName;
-                ui->mainPathEdit->setText(cfgp->GCSAppPath);
+                cfgp.GCSAppPath = fileName;
+                ui.mainPathEdit->setText(cfgp.GCSAppPath);
                 cfgFilePath = fileName + "/Contents/MacOS/config.json";
-                cfgp->cfgFilePath = cfgFilePath;
+                cfgp.cfgFilePath = cfgFilePath;
                 readConfigFile();
                 setUI();
             }
@@ -204,25 +163,25 @@ void MainWindow::on_mainPathBrowseButton_clicked()
             }
         }
     }
-    else if (cfgp->productType == "macos")
+    else if (cfgp.productType == "macos")
     {;}
-    else if (cfgp->productType == "ios")
+    else if (cfgp.productType == "ios")
     {;}
-    else if (cfgp->productType == "tvos")
+    else if (cfgp.productType == "tvos")
     {;}
-    else if (cfgp->productType == "watchos")
+    else if (cfgp.productType == "watchos")
     {;}
-    else if (cfgp->productType == "darwin")
+    else if (cfgp.productType == "darwin")
     {;}
-    else if (cfgp->productType == "android")
+    else if (cfgp.productType == "android")
     {;}
-    else if (cfgp->productType == "debian")
+    else if (cfgp.productType == "debian")
     {;}
-    else if (cfgp->productType == "winrt")
+    else if (cfgp.productType == "winrt")
     {;}
-    else if (cfgp->productType == "windows")
+    else if (cfgp.productType == "windows")
     {;}
-    else if (cfgp->productType == "unknown")
+    else if (cfgp.productType == "unknown")
     {;}
     else
     {;}
@@ -252,12 +211,12 @@ void MainWindow::on_resourceBrowseButton_clicked()
         if (true)
         {
             //qDebug() << dirPath;
-            cfgp->ResourcePath = dirPath + "/";
-            ui->resourcePathEdit->setText(cfgp->ResourcePath);
-            cfgp->mapImagePath = dirPath + "/mapscache/";
-            ui->mapResourceEdit->setText(cfgp->mapImagePath);
-            cfgp->mapIndexPath = dirPath + "/mapcache.txt";
-            ui->mapIndexPathEdit->setText(cfgp->mapIndexPath);
+            cfgp.ResourcePath = dirPath + "/";
+            ui.resourcePathEdit->setText(cfgp.ResourcePath);
+            cfgp.mapImagePath = dirPath + "/mapscache/";
+            ui.mapResourceEdit->setText(cfgp.mapImagePath);
+            cfgp.mapIndexPath = dirPath + "/mapcache.txt";
+            ui.mapIndexPathEdit->setText(cfgp.mapIndexPath);
         }
         else
         {
@@ -269,11 +228,11 @@ void MainWindow::on_resourceBrowseButton_clicked()
     }
 }
 
-void MainWindow::on_autoSetButton_clicked()
+void MainWindow::onAutoSetButton_clicked()
 {
-    cfgp->mapImagePath = cfgp->ResourcePath + "mapscache/";
-    cfgp->mapIndexPath = cfgp->ResourcePath + "mapcache.txt";
-    cfgp->xbeeAddrPath = cfgp->ResourcePath + "xbeeaddr/";
-    cfgp->logFilePath = cfgp->ResourcePath + "log/";
+    cfgp.mapImagePath = cfgp.ResourcePath + "mapscache/";
+    cfgp.mapIndexPath = cfgp.ResourcePath + "mapcache.txt";
+    cfgp.xbeeAddrPath = cfgp.ResourcePath + "xbeeaddr/";
+    cfgp.logFilePath = cfgp.ResourcePath + "log/";
     setUI();
 }
